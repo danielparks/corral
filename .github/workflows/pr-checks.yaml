@@ -1,0 +1,92 @@
+name: PR checks
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CLICOLOR: 1
+
+# These would more naturally be separate jobs, but GitHub actions “bills” each
+# job separately and rounds up to the next minute, so four 10 second jobs “cost”
+# my account 4 action minutes.
+jobs:
+  checks:
+    name: Checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      security-events: write # SARIF reporting for zizmor
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+        with:
+          toolchain: stable
+          components: clippy
+
+      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+        with:
+          toolchain: nightly
+          components: rustfmt
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2.87.22
+        with:
+          tool: cargo-msrv
+
+      - uses: crate-ci/typos@00f422f3b19c57bc6338715ebfe3316d38768461 # v1.50.3
+        if: ${{ !cancelled() }}
+
+      - uses: zizmorcore/zizmor-action@cc914d7f3750a2d13d75c7f184a1060aa0e9d482 # v0.6.4
+        if: ${{ !cancelled() }}
+        with:
+          persona: pedantic
+
+      - uses: actions-rust-lang/rustfmt@4066006ec54a31931b9b1fddfd38f2fdf2d27143 # v1.1.2
+        if: ${{ !cancelled() }}
+
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        if: ${{ !cancelled() }}
+        with:
+          rust-version: "1.85.0"
+
+      - name: cargo clippy
+        if: ${{ !cancelled() }}
+        run: cargo +stable clippy --all-features --all-targets
+
+      - name: cargo doc lints
+        if: ${{ !cancelled() }}
+        env:
+          RUSTDOCFLAGS: --document-private-items -Dwarnings
+        run: cargo +stable doc --no-deps --all-features
+
+      - name: cargo msrv
+        if: ${{ !cancelled() }}
+        run: cargo msrv verify
+
+      - name: cargo build
+        id: cargo_build
+        if: ${{ !cancelled() }}
+        run: cargo +stable build --tests --all-features
+
+      - name: cargo test
+        if: ${{ !cancelled() && steps.cargo_build.outcome == 'success' }}
+        run: cargo +stable test --all-features

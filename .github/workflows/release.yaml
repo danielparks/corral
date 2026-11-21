@@ -1,0 +1,78 @@
+# Mostly copied from https://github.com/taiki-e/cargo-hack/blob/main/.github/workflows/release.yml
+name: Release
+
+on:
+  push:
+    tags:
+      - v*.*.*
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_NET_GIT_FETCH_WITH_CLI: true
+  CARGO_NET_RETRY: 10
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  RUSTFLAGS: -D warnings
+  RUSTUP_MAX_RETRIES: 10
+
+jobs:
+  create-release:
+    if: github.repository_owner == 'danielparks'
+    name: Create
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write # To create release
+    steps:
+      - uses: danielparks/github-actions/create-release@2f6c98c73f0a8130d737500b59a0fddf749b484d # v1.1.1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  upload-assets:
+    if: github.repository_owner == 'danielparks'
+    name: ${{ matrix.target }}
+    needs:
+      - create-release
+    timeout-minutes: 60
+    permissions:
+      contents: write # To upload artifacts to release
+    strategy:
+      matrix:
+        include:
+          - target: aarch64-unknown-linux-gnu
+          - target: aarch64-unknown-linux-musl
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: aarch64-pc-windows-msvc
+            os: windows-latest
+          - target: x86_64-unknown-linux-gnu
+          - target: x86_64-unknown-linux-musl
+          - target: x86_64-apple-darwin
+            os: macos-latest
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+          - target: x86_64-unknown-freebsd
+          - target: x86_64-unknown-illumos
+          - target: universal-apple-darwin
+            os: macos-latest
+          - target: powerpc64le-unknown-linux-gnu
+          - target: powerpc64le-unknown-linux-musl
+          - target: riscv64gc-unknown-linux-gnu
+          - target: riscv64gc-unknown-linux-musl
+          - target: s390x-unknown-linux-gnu
+    runs-on: ${{ matrix.os || 'ubuntu-latest' }}
+    steps:
+      - uses: danielparks/github-actions/create-release-artifacts@2f6c98c73f0a8130d737500b59a0fddf749b484d # v1.1.1
+        with:
+          target: ${{ matrix.target }}
+          token: ${{ secrets.GITHUB_TOKEN }}
