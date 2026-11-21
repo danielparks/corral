@@ -2,6 +2,7 @@
 #![allow(clippy::allow_attributes, reason = "framework code from a template")]
 
 use std::io::{self, IsTerminal, Write};
+use std::path::PathBuf;
 use termcolor::{Color, ColorSpec, StandardStream, WriteColor};
 
 pub use clap::Parser;
@@ -17,6 +18,22 @@ pub struct Params {
     /// Verbosity (may be repeated up to three times).
     #[clap(short, long, action = clap::ArgAction::Count)]
     pub verbose: u8,
+
+    /// What to do.
+    #[clap(subcommand)]
+    pub command: Command,
+}
+
+/// Subcommands.
+#[derive(Debug, clap::Subcommand)]
+pub enum Command {
+    /// Check a devcontainer.json against the policy for runs.
+    ///
+    /// Run from the repository root.
+    CheckConfig {
+        /// Path to devcontainer.json, relative to the current directory.
+        path: PathBuf,
+    },
 }
 
 impl Params {
