@@ -6,6 +6,7 @@ use std::process::ExitCode;
 mod devcontainer;
 mod logging;
 mod params;
+mod shim;
 
 use anyhow::{Context, bail};
 use params::{Command, Params, Parser};
@@ -42,6 +43,9 @@ fn cli(params: &Params) -> anyhow::Result<ExitCode> {
 
     match &params.command {
         Command::CheckConfig { path } => check_config(params, path),
+        Command::PodmanShim { args } => {
+            shim::exec_podman(args).map(|()| ExitCode::SUCCESS)
+        }
     }
 }
 
