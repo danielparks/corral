@@ -35,6 +35,63 @@ pub enum Command {
         path: PathBuf,
     },
 
+    /// Create a project: a bare repository that runs clone from.
+    New {
+        /// Project name.
+        project: String,
+    },
+
+    /// Start a run on a new branch `agent/<name>`.
+    ///
+    /// The devcontainer config is read from the base commit, not from the
+    /// agent's workspace.
+    Up {
+        /// Project name.
+        project: String,
+
+        /// Run name.
+        name: String,
+
+        /// Branch or commit to start from.
+        #[clap(long, default_value = "main")]
+        base: String,
+    },
+
+    /// List runs.
+    Ls,
+
+    /// Run a command inside a run's container.
+    Exec {
+        /// Project name.
+        project: String,
+
+        /// Run name.
+        name: String,
+
+        /// Command and arguments.
+        #[clap(trailing_var_arg = true, required = true)]
+        command: Vec<String>,
+    },
+
+    /// Fetch a run's branch into the project, saving uncommitted work as a
+    /// snapshot.
+    Sync {
+        /// Project name.
+        project: String,
+
+        /// Run name.
+        name: String,
+    },
+
+    /// Remove a run's container and files.
+    Rm {
+        /// Project name.
+        project: String,
+
+        /// Run name.
+        name: String,
+    },
+
     /// Run `podman` after checking its arguments against the run policy.
     ///
     /// This is the devcontainer CLI's `--docker-path`. The policy comes from

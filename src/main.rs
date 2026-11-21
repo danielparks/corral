@@ -4,18 +4,29 @@ use std::io::Write;
 use std::process::ExitCode;
 
 mod devcontainer;
+mod git;
+mod layout;
 mod logging;
 mod params;
+mod runs;
 mod shim;
 
 use anyhow::{Context, bail};
+use layout::Layout;
 use params::{Command, Params, Parser};
 use std::path::Path;
+
+/// Name this executable is symlinked as to act as the podman filter.
+pub const SHIM_NAME: &str = "corral-podman";
 
 /// Wrapper to handle errors.
 ///
 /// See [`cli()`].
 fn main() -> ExitCode {
+    if invoked_as_shim() {
+        return run_shim();
+    }
+
     let params = Params::parse();
     cli(&params).unwrap_or_else(|error| {
         tracing::debug!("Exiting with error: {error:#?}");
@@ -43,6 +54,35 @@ fn cli(params: &Params) -> anyhow::Result<ExitCode> {
 
     match &params.command {
         Command::CheckConfig { path } => check_config(params, path),
+        Command::New { project } => {
+            runs::new_project(&Layout::from_env()?, project)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Up { project, name, base } => {
+            runs::up(&Layout::from_env()?, project, name, base)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Ls => {
+            runs::list(&Layout::from_env()?, &mut params.out_stream())?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Exec { project, name, command } => {
+            runs::exec(&Layout::from_env()?, project, name, command)
+                .map(|()| ExitCode::SUCCESS)
+        }
+        Command::Sync { project, name } => {
+            runs::sync(
+                &Layout::from_env()?,
+                project,
+                name,
+                &mut params.out_stream(),
+            )?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Rm { project, name } => {
+            runs::rm(&Layout::from_env()?, project, name)?;
+            Ok(ExitCode::SUCCESS)
+        }
         Command::PodmanShim { args } => {
             shim::exec_podman(args).map(|()| ExitCode::SUCCESS)
         }
@@ -76,4 +116,26 @@ fn check_config(params: &Params, path: &Path) -> anyhow::Result<ExitCode> {
     } else {
         Ok(ExitCode::FAILURE)
     }
+}
+
+/// Whether this executable was started under the shim's name.
+fn invoked_as_shim() -> bool {
+    std::env::args_os()
+        .next()
+        .and_then(|arg| Path::new(&arg).file_name().map(|n| n == SHIM_NAME))
+        .unwrap_or(false)
+}
+
+/// Act as `podman`, but only for arguments the policy allows.
+fn run_shim() -> ExitCode {
+    let args: Vec<String> = std::env::args_os()
+        .skip(1)
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect();
+    // Only returns if podman could not be started or the arguments were
+    // refused.
+    if let Err(error) = shim::exec_podman(&args) {
+        eprintln!("corral: {error:#}");
+    }
+    ExitCode::FAILURE
 }
