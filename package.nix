@@ -22,11 +22,6 @@ rustPlatform.buildRustPackage {
   };
   cargoLock.lockFile = ./Cargo.lock;
 
-  # nixos-25.11's rustc is older than the declared `rust-version`. Check that
-  # the code builds anyway; the tests below are the evidence it is fine.
-  cargoBuildFlags = [ "--ignore-rust-version" ];
-  cargoTestFlags = [ "--ignore-rust-version" ];
-
   nativeBuildInputs = [ makeBinaryWrapper ];
 
   # `podman` is deliberately not pinned here: rootless podman needs the
