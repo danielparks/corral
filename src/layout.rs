@@ -5,8 +5,10 @@
 //! <root>/runs/<project>/<name>/   one run:
 //!     workspace/                  clone the agent works in (untrusted)
 //!     pinned/                     export of the base commit (trusted)
+//!     inbox/                      files sent with `put` (read-only in the run)
 //!     tmp/                        scratch space for the devcontainer CLI
 //!     run.json                    metadata
+//! <root>/secrets/<project>/       one file per secret (read-only in its runs)
 //! <root>/bin/corral-podman        symlink to this executable
 //! <root>/excludes                 patterns never snapshotted
 //! ```
@@ -78,6 +80,16 @@ impl Layout {
         self.root.join("excludes")
     }
 
+    /// Directory of secrets for `project`: one file per secret.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `project` is not a valid name.
+    pub fn secrets(&self, project: &str) -> Result<PathBuf> {
+        validate("project", project)?;
+        Ok(self.root.join("secrets").join(project))
+    }
+
     /// Bare repository for `project`.
     ///
     /// # Errors
@@ -115,6 +127,12 @@ impl Run {
     #[must_use]
     pub fn pinned(&self) -> PathBuf {
         self.dir.join("pinned")
+    }
+
+    /// Files sent to the run, mounted read-only.
+    #[must_use]
+    pub fn inbox(&self) -> PathBuf {
+        self.dir.join("inbox")
     }
 
     /// Scratch space for the devcontainer CLI.

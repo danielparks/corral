@@ -122,7 +122,7 @@ pub enum Command {
     /// Run `podman` after checking its arguments against the run policy.
     ///
     /// This is the devcontainer CLI's `--docker-path`. The policy comes from
-    /// `CORRAL_BIND_ROOTS` and `CORRAL_ORIGIN`; the engine from
+    /// `CORRAL_BIND_ROOTS` and `CORRAL_RO_MOUNTS`; the engine from
     /// `CORRAL_PODMAN`.
     #[clap(hide = true)]
     PodmanShim {

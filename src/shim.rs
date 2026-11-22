@@ -17,19 +17,26 @@ use std::process::Command;
 /// Where the read-only origin repository appears inside containers.
 pub const ORIGIN_TARGET: &str = "/srv/origin.git";
 
+/// Where files sent with `put` appear inside containers.
+pub const INBOX_TARGET: &str = "/corral/inbox";
+
+/// Where the project's secrets appear inside containers: one file each.
+pub const SECRETS_TARGET: &str = "/run/corral/secrets";
+
 /// What a run is allowed to touch.
 #[derive(Debug, Default)]
 pub struct Policy {
     /// Host directories that bind mounts and build inputs may come from.
     pub bind_roots: Vec<PathBuf>,
 
-    /// Host path of a bare repository to mount read-only in every container.
-    pub origin: Option<PathBuf>,
+    /// Host paths to mount read-only in every container, with where they
+    /// appear inside it.
+    pub ro_mounts: Vec<(PathBuf, String)>,
 }
 
 impl Policy {
     /// Read the policy from `CORRAL_BIND_ROOTS` (colon-separated) and
-    /// `CORRAL_ORIGIN`.
+    /// `CORRAL_RO_MOUNTS` (a JSON array of `[source, target]` pairs).
     ///
     /// # Errors
     ///
@@ -47,8 +54,11 @@ impl Policy {
         {
             bail!("CORRAL_BIND_ROOTS must list absolute paths");
         }
-        let origin = std::env::var_os("CORRAL_ORIGIN").map(PathBuf::from);
-        Ok(Self { bind_roots, origin })
+        let ro_mounts = match std::env::var("CORRAL_RO_MOUNTS") {
+            Ok(json) => parse_ro_mounts(&json)?,
+            Err(_) => Vec::new(),
+        };
+        Ok(Self { bind_roots, ro_mounts })
     }
 
     /// Whether `path` is absolute and inside one of the bind roots.
@@ -58,6 +68,24 @@ impl Policy {
             && !path.components().any(|c| c == Component::ParentDir)
             && self.bind_roots.iter().any(|root| path.starts_with(root))
     }
+}
+
+/// Parse `CORRAL_RO_MOUNTS`.
+fn parse_ro_mounts(json: &str) -> Result<Vec<(PathBuf, String)>> {
+    let pairs: Vec<(String, String)> =
+        serde_json::from_str(json).context("invalid CORRAL_RO_MOUNTS")?;
+    for (source, target) in &pairs {
+        if !Path::new(source).is_absolute() || !target.starts_with('/') {
+            bail!("CORRAL_RO_MOUNTS paths must be absolute: {source} {target}");
+        }
+        if source.contains(',') || target.contains(',') {
+            bail!("CORRAL_RO_MOUNTS paths may not contain commas");
+        }
+    }
+    Ok(pairs
+        .into_iter()
+        .map(|(source, target)| (PathBuf::from(source), target))
+        .collect())
 }
 
 /// What the value of an option must satisfy.
@@ -210,11 +238,11 @@ fn run(policy: &Policy, args: &[String]) -> Result<Vec<String>> {
     }
 
     let mut out = vec!["run".to_owned()];
-    if let Some(origin) = &policy.origin {
+    for (source, target) in &policy.ro_mounts {
         out.push("--mount".to_owned());
         out.push(format!(
-            "type=bind,source={},target={ORIGIN_TARGET},readonly",
-            origin.display()
+            "type=bind,source={},target={target},readonly",
+            source.display()
         ));
     }
     out.extend(options);
@@ -414,7 +442,10 @@ mod tests {
     fn policy() -> Policy {
         Policy {
             bind_roots: vec!["/runs/app/x".into(), "/runs/app/x.tmp".into()],
-            origin: Some("/repos/app.git".into()),
+            ro_mounts: vec![(
+                "/repos/app.git".into(),
+                ORIGIN_TARGET.to_owned(),
+            )],
         }
     }
 
@@ -561,6 +592,18 @@ mod tests {
     fn command_after_image_is_not_inspected() {
         let line = "run img --privileged --mount /etc";
         filter(&policy(), &args(line)).unwrap();
+    }
+
+    #[test]
+    fn ro_mounts_are_parsed_and_checked() {
+        let mounts =
+            parse_ro_mounts(r#"[["/a/b","/c"],["/d","/e/f"]]"#).unwrap();
+        assert_eq!(mounts[1], (PathBuf::from("/d"), "/e/f".to_owned()));
+        assert_eq!(parse_ro_mounts("[]").unwrap(), []);
+        parse_ro_mounts(r#"[["rel","/c"]]"#).unwrap_err();
+        parse_ro_mounts(r#"[["/a","c"]]"#).unwrap_err();
+        parse_ro_mounts(r#"[["/a,b","/c"]]"#).unwrap_err();
+        parse_ro_mounts("nonsense").unwrap_err();
     }
 
     #[test]

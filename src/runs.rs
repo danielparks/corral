@@ -102,6 +102,8 @@ pub fn up(
     }
 
     std::fs::create_dir_all(run.tmp())?;
+    std::fs::create_dir_all(run.inbox())?;
+    std::fs::create_dir_all(layout.secrets(project)?)?;
     let result = up_inner(layout, &run, base);
     if result.is_err()
         && let Err(error) = remove(&run)
@@ -256,9 +258,18 @@ fn devcontainer_command(
         .arg("--id-label")
         .arg(format!("{LABEL}={}", run.label()))
         .env("CORRAL_BIND_ROOTS", roots)
-        .env("CORRAL_ORIGIN", &run.repo)
+        .env("CORRAL_RO_MOUNTS", ro_mounts(layout, run)?)
         .env("TMPDIR", run.tmp());
     Ok(command)
+}
+
+/// What every container of `run` gets mounted read-only, as JSON.
+fn ro_mounts(layout: &Layout, run: &Run) -> Result<String> {
+    Ok(serde_json::to_string(&[
+        (&run.repo, shim::ORIGIN_TARGET),
+        (&run.inbox(), shim::INBOX_TARGET),
+        (&layout.secrets(&run.project)?, shim::SECRETS_TARGET),
+    ])?)
 }
 
 /// Make sure `bin/corral-podman` points at this executable, and return it.
