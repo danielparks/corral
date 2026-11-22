@@ -3,6 +3,8 @@
 use std::io::Write;
 use std::process::ExitCode;
 
+mod client;
+mod config;
 mod devcontainer;
 mod git;
 mod layout;
@@ -13,7 +15,7 @@ mod shim;
 
 use anyhow::{Context, bail};
 use layout::Layout;
-use params::{Command, Params, Parser};
+use params::{Command, HostCommand, Params, Parser};
 use std::path::Path;
 
 /// Name this executable is symlinked as to act as the podman filter.
@@ -54,39 +56,68 @@ fn cli(params: &Params) -> anyhow::Result<ExitCode> {
 
     match &params.command {
         Command::CheckConfig { path } => check_config(params, path),
-        Command::New { project } => {
-            runs::new_project(&Layout::from_env()?, project)?;
-            Ok(ExitCode::SUCCESS)
+        Command::PodmanShim { args } => {
+            shim::exec_podman(args).map(|()| ExitCode::SUCCESS)
         }
-        Command::Up { project, name, base } => {
-            runs::up(&Layout::from_env()?, project, name, base)?;
-            Ok(ExitCode::SUCCESS)
-        }
-        Command::Ls => {
-            runs::list(&Layout::from_env()?, &mut params.out_stream())?;
-            Ok(ExitCode::SUCCESS)
-        }
-        Command::Exec { project, name, command } => {
-            runs::exec(&Layout::from_env()?, project, name, command)
-                .map(|()| ExitCode::SUCCESS)
-        }
-        Command::Sync { project, name } => {
-            runs::sync(
-                &Layout::from_env()?,
-                project,
+        Command::Host { command } => host(params, command),
+        Command::Init { name, address, user, no_passphrase } => {
+            client::init(
                 name,
+                address,
+                user,
+                *no_passphrase,
                 &mut params.out_stream(),
             )?;
             Ok(ExitCode::SUCCESS)
         }
-        Command::Rm { project, name } => {
-            runs::rm(&Layout::from_env()?, project, name)?;
-            Ok(ExitCode::SUCCESS)
+        Command::Exec { name, command } => client(params)?.exec(name, command),
+        Command::New => client(params)?.new_project().map(ok),
+        Command::Up { name, base } => client(params)?.up(name, base).map(ok),
+        Command::Ls => client(params)?.ls().map(ok),
+        Command::Pull { name } => {
+            client(params)?.pull(name, &mut params.out_stream()).map(ok)
         }
-        Command::PodmanShim { args } => {
-            shim::exec_podman(args).map(|()| ExitCode::SUCCESS)
-        }
+        Command::Rm { name } => client(params)?.rm(name).map(ok),
     }
+}
+
+/// Map a successful result to a successful exit code.
+const fn ok((): ()) -> ExitCode {
+    ExitCode::SUCCESS
+}
+
+/// Build the client from the command line and config.
+fn client(params: &Params) -> anyhow::Result<client::Client> {
+    client::Client::new(params.host.as_deref(), params.project_name.as_deref())
+}
+
+/// Run a command that operates on this machine as the host.
+fn host(params: &Params, command: &HostCommand) -> anyhow::Result<ExitCode> {
+    let layout = Layout::from_env()?;
+    match command {
+        HostCommand::New { project } => {
+            runs::new_project(&layout, project)?;
+        }
+        HostCommand::Path { project } => {
+            writeln!(
+                params.out_stream(),
+                "{}",
+                layout.repo(project)?.display()
+            )?;
+        }
+        HostCommand::Up { project, name, base } => {
+            runs::up(&layout, project, name, base)?;
+        }
+        HostCommand::Ls => runs::list(&layout, &mut params.out_stream())?,
+        HostCommand::Exec { project, name, command } => {
+            runs::exec(&layout, project, name, command)?;
+        }
+        HostCommand::Sync { project, name } => {
+            runs::sync(&layout, project, name, &mut params.out_stream())?;
+        }
+        HostCommand::Rm { project, name } => runs::rm(&layout, project, name)?,
+    }
+    Ok(ExitCode::SUCCESS)
 }
 
 /// Implement `check-config`.

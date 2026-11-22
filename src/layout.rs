@@ -149,7 +149,7 @@ impl Run {
 }
 
 /// Check that `value` is safe to use as a path component and in a ref name.
-fn validate(kind: &str, value: &str) -> Result<()> {
+pub fn validate(kind: &str, value: &str) -> Result<()> {
     let ok = !value.is_empty()
         && value.len() <= 64
         && value.starts_with(|c: char| c.is_ascii_alphanumeric())

@@ -77,13 +77,6 @@ pub fn new_project(layout: &Layout, project: &str) -> Result<()> {
             .args(["init", "-q", "--bare", "-b", "main"])
             .arg(&repo),
     )?;
-    // Only fast-forwards, and no deleting: the laptop is the source of truth.
-    git::run(bare(&repo).args(["config", "receive.denyDeletes", "true"]))?;
-    git::run(bare(&repo).args([
-        "config",
-        "receive.denyNonFastForwards",
-        "true",
-    ]))?;
     Ok(())
 }
 
@@ -500,7 +493,16 @@ pub fn rm(layout: &Layout, project: &str, name: &str) -> Result<()> {
     if !run.dir.exists() {
         bail!("no such run: {}", run.label());
     }
-    remove(&run)
+    remove(&run)?;
+
+    // The base ref was only needed to start the run. The branch and any
+    // snapshot stay, since they are the results.
+    let _ = git::run(bare(&run.repo).args([
+        "update-ref",
+        "-d",
+        &format!("refs/bases/{name}"),
+    ]));
+    Ok(())
 }
 
 /// Remove the container and directory of `run`, if they exist.

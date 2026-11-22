@@ -7,7 +7,10 @@ use termcolor::{Color, ColorSpec, StandardStream, WriteColor};
 
 pub use clap::Parser;
 
-/// Parameters to configure executable.
+/// Run coding agents in containers on a remote host.
+///
+/// Work moves between this machine (the client) and the host as git
+/// branches. Each run gets a clone on the host and its own container.
 #[derive(Debug, clap::Parser)]
 #[clap(version, about)]
 pub struct Params {
@@ -19,6 +22,22 @@ pub struct Params {
     #[clap(short, long, action = clap::ArgAction::Count)]
     pub verbose: u8,
 
+    /// SSH host to use, usually an alias in `~/.ssh/config`.
+    ///
+    /// Defaults to the host in the config file.
+    #[clap(long, global = true, env = "CORRAL_HOST", value_name = "HOST")]
+    pub host: Option<String>,
+
+    /// Project name. Defaults to `corral.project` in git config, or the
+    /// repository's directory name.
+    #[clap(
+        long = "project",
+        global = true,
+        env = "CORRAL_PROJECT",
+        value_name = "NAME"
+    )]
+    pub project_name: Option<String>,
+
     /// What to do.
     #[clap(subcommand)]
     pub command: Command,
@@ -27,6 +46,71 @@ pub struct Params {
 /// Subcommands.
 #[derive(Debug, clap::Subcommand)]
 pub enum Command {
+    /// Set up SSH access to a host: a key, an `~/.ssh/config` entry, and the
+    /// default host.
+    Init {
+        /// Short name for the host, e.g. `nellie`.
+        name: String,
+
+        /// Address to connect to.
+        address: String,
+
+        /// User to log in as on the host.
+        #[clap(long, default_value = "agent")]
+        user: String,
+
+        /// Do not protect the new key with a passphrase.
+        #[clap(long)]
+        no_passphrase: bool,
+    },
+
+    /// Create this repository's project on the host and add a `corral`
+    /// remote.
+    New,
+
+    /// Start a run on the host, on a new branch `agent/<name>`.
+    Up {
+        /// Run name.
+        name: String,
+
+        /// Revision to start from. Works with a detached HEAD.
+        #[clap(long, default_value = "HEAD")]
+        base: String,
+    },
+
+    /// List runs on the host.
+    Ls,
+
+    /// Run a command inside a run's container.
+    Exec {
+        /// Run name.
+        name: String,
+
+        /// Command and arguments.
+        #[clap(trailing_var_arg = true, required = true)]
+        command: Vec<String>,
+    },
+
+    /// Fetch a run's branch (and any snapshot of uncommitted work) from the
+    /// host.
+    Pull {
+        /// Run name.
+        name: String,
+    },
+
+    /// Remove a run's container and files. Its branch stays in the project.
+    Rm {
+        /// Run name.
+        name: String,
+    },
+
+    /// Commands that run on the host. The client runs these over SSH.
+    Host {
+        /// What to do on the host.
+        #[clap(subcommand)]
+        command: HostCommand,
+    },
+
     /// Check a devcontainer.json against the policy for runs.
     ///
     /// Run from the repository root.
@@ -35,8 +119,30 @@ pub enum Command {
         path: PathBuf,
     },
 
+    /// Run `podman` after checking its arguments against the run policy.
+    ///
+    /// This is the devcontainer CLI's `--docker-path`. The policy comes from
+    /// `CORRAL_BIND_ROOTS` and `CORRAL_ORIGIN`; the engine from
+    /// `CORRAL_PODMAN`.
+    #[clap(hide = true)]
+    PodmanShim {
+        /// Arguments for podman.
+        #[clap(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+}
+
+/// Commands that run on the host.
+#[derive(Debug, clap::Subcommand)]
+pub enum HostCommand {
     /// Create a project: a bare repository that runs clone from.
     New {
+        /// Project name.
+        project: String,
+    },
+
+    /// Print the path of a project's bare repository.
+    Path {
         /// Project name.
         project: String,
     },
@@ -52,7 +158,7 @@ pub enum Command {
         /// Run name.
         name: String,
 
-        /// Branch or commit to start from.
+        /// Branch, ref, or commit in the project to start from.
         #[clap(long, default_value = "main")]
         base: String,
     },
@@ -90,18 +196,6 @@ pub enum Command {
 
         /// Run name.
         name: String,
-    },
-
-    /// Run `podman` after checking its arguments against the run policy.
-    ///
-    /// This is the devcontainer CLI's `--docker-path`. The policy comes from
-    /// `CORRAL_BIND_ROOTS` and `CORRAL_ORIGIN`; the engine from
-    /// `CORRAL_PODMAN`.
-    #[clap(hide = true)]
-    PodmanShim {
-        /// Arguments for podman.
-        #[clap(trailing_var_arg = true, allow_hyphen_values = true)]
-        args: Vec<String>,
     },
 }
 
