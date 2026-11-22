@@ -1,6 +1,6 @@
 exclude: |
   (?x)(
-    ^target/|
+    ^target/
   )
 
 repos:
