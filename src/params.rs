@@ -98,6 +98,27 @@ pub enum Command {
         name: String,
     },
 
+    /// Send files, images, or whole repositories to a run.
+    ///
+    /// They appear read-only under `/corral/inbox` in the container, each
+    /// under its own name.
+    Put {
+        /// Run name.
+        name: String,
+
+        /// Files or directories to send.
+        #[clap(required = true)]
+        paths: Vec<PathBuf>,
+    },
+
+    /// Manage the project's secrets, which are exported as environment
+    /// variables in `exec` and never stored in git or an image.
+    Secret {
+        /// What to do.
+        #[clap(subcommand)]
+        command: SecretCommand,
+    },
+
     /// Remove a run's container and files. Its branch stays in the project.
     Rm {
         /// Run name.
@@ -132,9 +153,61 @@ pub enum Command {
     },
 }
 
+/// What to do with secrets.
+#[derive(Debug, clap::Subcommand)]
+pub enum SecretCommand {
+    /// Set a secret from standard input, or prompt for it.
+    Set {
+        /// Name, which becomes the environment variable name.
+        name: String,
+    },
+
+    /// List secret names.
+    Ls,
+
+    /// Remove a secret.
+    Rm {
+        /// Name.
+        name: String,
+    },
+}
+
 /// Commands that run on the host.
 #[derive(Debug, clap::Subcommand)]
 pub enum HostCommand {
+    /// Unpack a tar archive from standard input into a run's inbox.
+    Put {
+        /// Project name.
+        project: String,
+
+        /// Run name.
+        name: String,
+    },
+
+    /// Set a secret from standard input.
+    SecretSet {
+        /// Project name.
+        project: String,
+
+        /// Secret name.
+        name: String,
+    },
+
+    /// List a project's secret names.
+    SecretLs {
+        /// Project name.
+        project: String,
+    },
+
+    /// Remove a secret.
+    SecretRm {
+        /// Project name.
+        project: String,
+
+        /// Secret name.
+        name: String,
+    },
+
     /// Create a project: a bare repository that runs clone from.
     New {
         /// Project name.

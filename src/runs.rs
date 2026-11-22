@@ -312,6 +312,8 @@ pub fn exec(
 ) -> Result<()> {
     let (run, meta) = load(layout, project, name)?;
     let mut exec = devcontainer_command(layout, &run, &meta.config, "exec")?;
+    // Export the project's secrets as environment variables first.
+    exec.args(["sh", "-c", crate::files::EXPORT_SECRETS_THEN_EXEC, "corral"]);
     let error = exec.args(command).exec();
     Err(error).context("could not run devcontainer")
 }

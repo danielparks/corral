@@ -13,10 +13,10 @@ use crate::config::Config;
 use crate::git::{self, git};
 use crate::layout::validate;
 use anyhow::{Context, Result, bail};
-use std::io::{IsTerminal, Write};
+use std::io::{IsTerminal, Read, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
-use std::process::{Command, ExitCode};
+use std::process::{Command, ExitCode, Stdio};
 
 /// Name of the git remote pointing at the host.
 const REMOTE: &str = "corral";
@@ -227,6 +227,91 @@ impl Client {
             )?;
         }
         Ok(())
+    }
+
+    /// Send files or directories to a run's inbox.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a path cannot be read or the host rejects it.
+    pub fn put(&self, name: &str, paths: &[PathBuf]) -> Result<()> {
+        validate("run", name)?;
+        let project = self.project()?;
+        let mut child = self
+            .ssh(false, &["put", &project, name])
+            .stdin(Stdio::piped())
+            .spawn()
+            .context("could not run ssh")?;
+        {
+            let stdin = child.stdin.take().context("no ssh stdin")?;
+            let mut archive = tar::Builder::new(stdin);
+            // Send symlinks as symlinks rather than what they point at.
+            archive.follow_symlinks(false);
+            for path in paths {
+                let entry = path.file_name().with_context(|| {
+                    format!("no name in {}", path.display())
+                })?;
+                if path.is_dir() {
+                    archive.append_dir_all(entry, path)
+                } else {
+                    archive.append_path_with_name(path, entry)
+                }
+                .with_context(|| format!("could not add {}", path.display()))?;
+            }
+            archive.finish()?;
+        }
+        if !child.wait()?.success() {
+            bail!("the host rejected the files");
+        }
+        Ok(())
+    }
+
+    /// Set a secret from standard input, or prompt for it.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the value cannot be read or the host rejects it.
+    pub fn secret_set(&self, name: &str) -> Result<()> {
+        let project = self.project()?;
+        let value = if std::io::stdin().is_terminal() {
+            rpassword::prompt_password(format!("{name}: "))?.into_bytes()
+        } else {
+            let mut value = Vec::new();
+            std::io::stdin().read_to_end(&mut value)?;
+            value
+        };
+        let mut child = self
+            .ssh(false, &["secret-set", &project, name])
+            .stdin(Stdio::piped())
+            .spawn()
+            .context("could not run ssh")?;
+        child
+            .stdin
+            .take()
+            .context("no ssh stdin")?
+            .write_all(&value)?;
+        if !child.wait()?.success() {
+            bail!("the host rejected the secret");
+        }
+        Ok(())
+    }
+
+    /// List the project's secret names.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the host command fails.
+    pub fn secret_ls(&self) -> Result<()> {
+        self.run(&["secret-ls", &self.project()?])
+    }
+
+    /// Remove a secret.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the host command fails.
+    pub fn secret_rm(&self, name: &str) -> Result<()> {
+        self.run(&["secret-rm", &self.project()?, name])
     }
 
     /// Remove a run on the host. Its branch stays in the project.

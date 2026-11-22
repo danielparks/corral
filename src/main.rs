@@ -6,6 +6,7 @@ use std::process::ExitCode;
 mod client;
 mod config;
 mod devcontainer;
+mod files;
 mod git;
 mod layout;
 mod logging;
@@ -15,7 +16,7 @@ mod shim;
 
 use anyhow::{Context, bail};
 use layout::Layout;
-use params::{Command, HostCommand, Params, Parser};
+use params::{Command, HostCommand, Params, Parser, SecretCommand};
 use std::path::Path;
 
 /// Name this executable is symlinked as to act as the podman filter.
@@ -77,6 +78,18 @@ fn cli(params: &Params) -> anyhow::Result<ExitCode> {
         Command::Pull { name } => {
             client(params)?.pull(name, &mut params.out_stream()).map(ok)
         }
+        Command::Put { name, paths } => {
+            client(params)?.put(name, paths).map(ok)
+        }
+        Command::Secret { command } => {
+            let client = client(params)?;
+            match command {
+                SecretCommand::Set { name } => client.secret_set(name),
+                SecretCommand::Ls => client.secret_ls(),
+                SecretCommand::Rm { name } => client.secret_rm(name),
+            }
+            .map(ok)
+        }
         Command::Rm { name } => client(params)?.rm(name).map(ok),
     }
 }
@@ -116,6 +129,18 @@ fn host(params: &Params, command: &HostCommand) -> anyhow::Result<ExitCode> {
             runs::sync(&layout, project, name, &mut params.out_stream())?;
         }
         HostCommand::Rm { project, name } => runs::rm(&layout, project, name)?,
+        HostCommand::Put { project, name } => {
+            files::put(&layout, project, name, std::io::stdin().lock())?;
+        }
+        HostCommand::SecretSet { project, name } => {
+            files::secret_set(&layout, project, name, std::io::stdin().lock())?;
+        }
+        HostCommand::SecretLs { project } => {
+            files::secret_list(&layout, project, &mut params.out_stream())?;
+        }
+        HostCommand::SecretRm { project, name } => {
+            files::secret_remove(&layout, project, name)?;
+        }
     }
     Ok(ExitCode::SUCCESS)
 }

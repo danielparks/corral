@@ -56,6 +56,13 @@ impl Layout {
         Ok(Self { root })
     }
 
+    /// Use `root` as the root directory.
+    #[cfg(test)]
+    #[must_use]
+    pub const fn at(root: PathBuf) -> Self {
+        Self { root }
+    }
+
     /// The root directory.
     #[must_use]
     pub fn root(&self) -> &Path {
