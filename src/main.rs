@@ -78,6 +78,10 @@ fn cli(params: &Params) -> anyhow::Result<ExitCode> {
         Command::Pull { name } => {
             client(params)?.pull(name, &mut params.out_stream()).map(ok)
         }
+        Command::Claude { name, detach, args } => {
+            client(params)?.claude(name, *detach, args)
+        }
+        Command::Logs { name, follow } => client(params)?.logs(name, *follow),
         Command::Put { name, paths } => {
             client(params)?.put(name, paths).map(ok)
         }

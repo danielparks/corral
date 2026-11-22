@@ -98,6 +98,35 @@ pub enum Command {
         name: String,
     },
 
+    /// Run Claude Code in a run's container with permission prompts off.
+    ///
+    /// The container is the sandbox. Claude is told to commit its work to
+    /// the run's branch, since `pull` collects commits. Credentials come from
+    /// secrets: set `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`) or
+    /// `ANTHROPIC_API_KEY`.
+    Claude {
+        /// Run name.
+        name: String,
+
+        /// Keep running in the background; follow it with `logs`.
+        #[clap(long)]
+        detach: bool,
+
+        /// Arguments for `claude`, e.g. `-p "fix the failing test"`.
+        #[clap(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+
+    /// Show the output of a detached `claude`.
+    Logs {
+        /// Run name.
+        name: String,
+
+        /// Keep following new output.
+        #[clap(short, long)]
+        follow: bool,
+    },
+
     /// Send files, images, or whole repositories to a run.
     ///
     /// They appear read-only under `/corral/inbox` in the container, each

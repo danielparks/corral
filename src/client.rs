@@ -18,6 +18,18 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::process::{Command, ExitCode, Stdio};
 
+/// Added to Claude's system prompt in every run.
+const CLAUDE_NOTE: &str = "You are running unattended in an isolated \
+    container. Commit your work to the current git branch as you go and \
+    before you finish: only commits are collected, and you cannot push. \
+    Reference files may be in /corral/inbox (read-only).";
+
+/// Where a detached `claude` writes its output, inside the container.
+const CLAUDE_LOG: &str = "/tmp/corral-claude.log";
+
+/// Starts the command given to it in the background and returns at once.
+const DETACH: &str = r#"nohup "$@" </dev/null >/tmp/corral-claude.log 2>&1 &"#;
+
 /// Name of the git remote pointing at the host.
 const REMOTE: &str = "corral";
 
@@ -227,6 +239,54 @@ impl Client {
             )?;
         }
         Ok(())
+    }
+
+    /// Run Claude Code in a run, in the foreground or detached.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if ssh cannot be run.
+    pub fn claude(
+        &self,
+        name: &str,
+        detach: bool,
+        args: &[String],
+    ) -> Result<ExitCode> {
+        let claude = [
+            "claude",
+            "--dangerously-skip-permissions",
+            "--append-system-prompt",
+            CLAUDE_NOTE,
+        ]
+        .map(str::to_owned)
+        .into_iter()
+        .chain(args.iter().cloned());
+
+        if detach {
+            let command: Vec<String> = ["sh", "-c", DETACH, "corral-detach"]
+                .map(str::to_owned)
+                .into_iter()
+                .chain(claude)
+                .collect();
+            let code = self.exec(name, &command)?;
+            eprintln!("started; follow it with `corral logs -f {name}`");
+            Ok(code)
+        } else {
+            self.exec(name, &claude.collect::<Vec<_>>())
+        }
+    }
+
+    /// Show the output of a detached `claude`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if ssh cannot be run.
+    pub fn logs(&self, name: &str, follow: bool) -> Result<ExitCode> {
+        let flag = if follow { "-f" } else { "-n200" };
+        self.exec(
+            name,
+            &["tail".to_owned(), flag.to_owned(), CLAUDE_LOG.to_owned()],
+        )
     }
 
     /// Send files or directories to a run's inbox.

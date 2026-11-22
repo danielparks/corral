@@ -36,6 +36,11 @@ id_ed25519*
 .DS_Store
 ";
 
+/// Feature added to every run so that Claude Code is installed, whatever the
+/// project's own devcontainer config says.
+const CLAUDE_FEATURE: &str =
+    r#"{"ghcr.io/anthropics/devcontainer-features/claude-code:1":{}}"#;
+
 /// Label key the run's container is tagged with.
 const LABEL: &str = "corral.run";
 
@@ -155,6 +160,7 @@ fn up_inner(layout: &Layout, run: &Run, base: &str) -> Result<()> {
     in_workspace(&["config", "user.email", "agent@corral.invalid"])?;
 
     let mut up = devcontainer_command(layout, run, &config, "up")?;
+    up.args(["--additional-features", CLAUDE_FEATURE]);
     up.stdout(Stdio::piped()).stderr(Stdio::inherit());
     let out = up.output().context("could not run devcontainer")?;
     if !out.status.success() {
