@@ -404,7 +404,11 @@ pub fn sync(
     ]))?;
     writeln!(out, "{branch} is at {}", short(&tip))?;
 
-    match snapshot(layout, &run, &tip)? {
+    let (commit, skipped) = snapshot(layout, &run, &tip)?;
+    for path in &skipped {
+        writeln!(out, "warning: could not read {path}; not in snapshot")?;
+    }
+    match commit {
         Some(commit) => writeln!(
             out,
             "uncommitted changes saved as {} ({})",
@@ -422,8 +426,12 @@ fn short(commit: &str) -> &str {
 }
 
 /// Record the workspace's files, if they differ from `tip`, on the run's
-/// snapshot ref. Returns the new commit.
-fn snapshot(layout: &Layout, run: &Run, tip: &str) -> Result<Option<String>> {
+/// snapshot ref. Returns the new commit and any files that could not be read.
+fn snapshot(
+    layout: &Layout,
+    run: &Run,
+    tip: &str,
+) -> Result<(Option<String>, Vec<String>)> {
     let excludes = layout.excludes();
     std::fs::write(&excludes, EXCLUDES)?;
     let index = run.dir.join("snapshot.index");
@@ -442,7 +450,22 @@ fn snapshot(layout: &Layout, run: &Run, tip: &str) -> Result<Option<String>> {
         git::output(&mut command)
     };
     work(&["read-tree", tip])?;
-    work(&["add", "-A", "--", "."])?;
+    // Files the agent cannot make readable (e.g. created by root in the
+    // container) are skipped, not fatal.
+    let mut skipped = Vec::new();
+    if let Err(error) = work(&["add", "-A", "--ignore-errors", "--", "."]) {
+        let message = format!("{error:#}");
+        if !message.contains("unable to index file") {
+            return Err(error);
+        }
+        skipped.extend(
+            message
+                .lines()
+                .filter_map(|line| line.strip_prefix("error: open(\""))
+                .filter_map(|line| line.split_once('"'))
+                .map(|(path, _)| path.to_owned()),
+        );
+    }
     let tree = work(&["write-tree"])?;
     let _ = std::fs::remove_file(&index);
 
@@ -450,7 +473,7 @@ fn snapshot(layout: &Layout, run: &Run, tip: &str) -> Result<Option<String>> {
         bare(&run.repo).args(["rev-parse", &format!("{tip}^{{tree}}")]),
     )?;
     if tree == tip_tree {
-        return Ok(None);
+        return Ok((None, skipped));
     }
 
     let commit = git::output(
@@ -464,7 +487,7 @@ fn snapshot(layout: &Layout, run: &Run, tip: &str) -> Result<Option<String>> {
         &run.snapshot_ref(),
         &commit,
     ]))?;
-    Ok(Some(commit))
+    Ok((Some(commit), skipped))
 }
 
 /// Remove a run's container and files.
